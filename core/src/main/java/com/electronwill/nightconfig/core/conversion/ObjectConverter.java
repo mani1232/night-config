@@ -135,56 +135,59 @@ public final class ObjectConverter {
 				}
 
 				// --- Applies annotations ---
-				Object value;
-				try {
-					value = field.get(object);
-				} catch (IllegalAccessException e) {// Unexpected: setAccessible is called if needed
-					throw new ReflectionException("Unable to parse the field " + field, e);
-				}
-				AnnotationUtils.checkField(field, value);/* Checks that the value is conform to an
+				IgnoreValue ignoreValue = field.getDeclaredAnnotation(IgnoreValue.class);
+				if (ignoreValue != null) {
+					Object value;
+					try {
+						value = field.get(object);
+					} catch (IllegalAccessException e) {// Unexpected: setAccessible is called if needed
+						throw new ReflectionException("Unable to parse the field " + field, e);
+					}
+					AnnotationUtils.checkField(field, value);/* Checks that the value is conform to an
 																eventual @SpecSometing annotation */
-				Converter<Object, Object> converter = AnnotationUtils.getConverter(field);
-				if (converter != null) {
-					value = converter.convertFromField(value);
-				}
-				List<String> path = AnnotationUtils.getPath(field);
-				ConfigFormat<?> format = destination.configFormat();
+					Converter<Object, Object> converter = AnnotationUtils.getConverter(field);
+					if (converter != null) {
+						value = converter.convertFromField(value);
+					}
+					List<String> path = AnnotationUtils.getPath(field);
+					ConfigFormat<?> format = destination.configFormat();
 
-				// --- Writes the value to the configuration ---
-				if (value == null) {
-					destination.set(path, null);
-				} else {
-					Class<?> valueType = value.getClass();
-                    if (Enum.class.isAssignableFrom(valueType)) {
-                        // Enums must not be treated as objects to break down
-                        // Note: isEnum() doesn't work with enum items that have a body
-                        if (destination.configFormat().supportsType(Enum.class)) {
-                            destination.set(path, value); // keep the enum value if supported
-                        } else {
-                            destination.set(path, value.toString()); // if not supported, serialize it
-                        }
-                    } else if (field.isAnnotationPresent(ForceBreakdown.class) || !format.supportsType(valueType)) {
-						// We have to convert the value
-						destination.set(path, value);
-						Config converted = destination.createSubConfig();
-						convertToConfig(value, valueType, converted);
-						destination.set(path, converted);
-					} else if (value instanceof Collection) {
-						// Checks that the ConfigFormat supports the type of the collection's elements
-						Collection<?> src = (Collection<?>)value;
-						Class<?> bottomType = bottomElementType(src);
-						if (format.supportsType(bottomType)) {
-							// Everything is supported, no conversion needed
-							destination.set(path, value);
-						} else {
-							// List of complex objects => the bottom elements need conversion
-							Collection<Object> dst = new ArrayList<>(src.size());
-							convertObjectsToConfigs(src, bottomType, dst, destination);
-							destination.set(path, dst);
-						}
+					// --- Writes the value to the configuration ---
+					if (value == null) {
+						destination.set(path, null);
 					} else {
-						// Simple value
-						destination.set(path, value);
+						Class<?> valueType = value.getClass();
+						if (Enum.class.isAssignableFrom(valueType)) {
+							// Enums must not be treated as objects to break down
+							// Note: isEnum() doesn't work with enum items that have a body
+							if (destination.configFormat().supportsType(Enum.class)) {
+								destination.set(path, value); // keep the enum value if supported
+							} else {
+								destination.set(path, value.toString()); // if not supported, serialize it
+							}
+						} else if (field.isAnnotationPresent(ForceBreakdown.class) || !format.supportsType(valueType)) {
+							// We have to convert the value
+							destination.set(path, value);
+							Config converted = destination.createSubConfig();
+							convertToConfig(value, valueType, converted);
+							destination.set(path, converted);
+						} else if (value instanceof Collection) {
+							// Checks that the ConfigFormat supports the type of the collection's elements
+							Collection<?> src = (Collection<?>)value;
+							Class<?> bottomType = bottomElementType(src);
+							if (format.supportsType(bottomType)) {
+								// Everything is supported, no conversion needed
+								destination.set(path, value);
+							} else {
+								// List of complex objects => the bottom elements need conversion
+								Collection<Object> dst = new ArrayList<>(src.size());
+								convertObjectsToConfigs(src, bottomType, dst, destination);
+								destination.set(path, dst);
+							}
+						} else {
+							// Simple value
+							destination.set(path, value);
+						}
 					}
 				}
 			}
@@ -214,88 +217,91 @@ public final class ObjectConverter {
 					continue;// Don't process transient fields if configured so
 				}
 
-				// --- Applies annotations ---
-				List<String> path = AnnotationUtils.getPath(field);
-				Object value = config.get(path);
-				Converter<Object, Object> converter = AnnotationUtils.getConverter(field);
-				if (converter != null) {
-					value = converter.convertToField(value);
-				}
+				IgnoreValue ignoreValue = field.getDeclaredAnnotation(IgnoreValue.class);
+				if (ignoreValue != null) {
+					// --- Applies annotations ---
+					List<String> path = AnnotationUtils.getPath(field);
+					Object value = config.get(path);
+					Converter<Object, Object> converter = AnnotationUtils.getConverter(field);
+					if (converter != null) {
+						value = converter.convertToField(value);
+					}
 
-				// --- Writes the value to the object's field, converting it if needed ---
-				Class<?> fieldType = field.getType();
-				try {
-					if (value instanceof UnmodifiableConfig && !(fieldType.isAssignableFrom(value.getClass()))) {
-						// --- Read as a sub-object ---
-						final UnmodifiableConfig cfg = (UnmodifiableConfig)value;
+					// --- Writes the value to the object's field, converting it if needed ---
+					Class<?> fieldType = field.getType();
+					try {
+						if (value instanceof UnmodifiableConfig && !(fieldType.isAssignableFrom(value.getClass()))) {
+							// --- Read as a sub-object ---
+							final UnmodifiableConfig cfg = (UnmodifiableConfig)value;
 
-						// Gets or creates the field and convert it (if null OR not preserved)
-						Object fieldValue = field.get(object);
-						if (fieldValue == null) {
-							fieldValue = createInstance(fieldType);
-							field.set(object, fieldValue);
-							convertToObject(cfg, fieldValue, field.getType());
-						} else if (!AnnotationUtils.mustPreserve(field, clazz)) {
-							convertToObject(cfg, fieldValue, field.getType());
-						}
-
-					} else if (value instanceof Collection && Collection.class.isAssignableFrom(fieldType)) {
-						// --- Reads as a collection, maybe a list of objects with conversion ---
-						final Collection<?> src = (Collection<?>)value;
-						final Class<?> srcBottomType = bottomElementType(src);
-
-						final ParameterizedType genericType = (ParameterizedType)field.getGenericType();
-						final List<Class<?>> dstTypes = elementTypes(genericType);
-						final Class<?> dstBottomType = dstTypes.get(dstTypes.size()-1);
-
-						if (srcBottomType == null
-							|| dstBottomType == null
-							|| dstBottomType.isAssignableFrom(srcBottomType)) {
-
-							// Simple list, no conversion needed
-							AnnotationUtils.checkField(field, value);
-							field.set(object, value);
-
-						} else {
-							// List of objects => the bottom elements need conversion
-
-							// Uses the current field value if there is one, or create a new list
-							Collection<Object> dst = (Collection<Object>)field.get(object);
-							if (dst == null) {
-								if (fieldType == ArrayList.class
-									|| fieldType.isInterface()
-									|| Modifier.isAbstract(fieldType.getModifiers())) {
-									dst = new ArrayList<>(src.size());// allocates the right size
-								} else {
-									dst = (Collection<Object>)createInstance(fieldType);
-								}
-								field.set(object, dst);
+							// Gets or creates the field and convert it (if null OR not preserved)
+							Object fieldValue = field.get(object);
+							if (fieldValue == null) {
+								fieldValue = createInstance(fieldType);
+								field.set(object, fieldValue);
+								convertToObject(cfg, fieldValue, field.getType());
+							} else if (!AnnotationUtils.mustPreserve(field, clazz)) {
+								convertToObject(cfg, fieldValue, field.getType());
 							}
 
-							// Converts the elements of the list
-							convertConfigsToObject(src, dst, dstTypes, 0);
+						} else if (value instanceof Collection && Collection.class.isAssignableFrom(fieldType)) {
+							// --- Reads as a collection, maybe a list of objects with conversion ---
+							final Collection<?> src = (Collection<?>)value;
+							final Class<?> srcBottomType = bottomElementType(src);
 
-							// Applies the checks
-							AnnotationUtils.checkField(field, dst);
-						}
-					} else {
-						// --- Read as a plain value ---
-						if (value == null && AnnotationUtils.mustPreserve(field, clazz)) {
-							AnnotationUtils.checkField(field, field.get(object));
+							final ParameterizedType genericType = (ParameterizedType)field.getGenericType();
+							final List<Class<?>> dstTypes = elementTypes(genericType);
+							final Class<?> dstBottomType = dstTypes.get(dstTypes.size()-1);
+
+							if (srcBottomType == null
+								|| dstBottomType == null
+								|| dstBottomType.isAssignableFrom(srcBottomType)) {
+
+								// Simple list, no conversion needed
+								AnnotationUtils.checkField(field, value);
+								field.set(object, value);
+
+							} else {
+								// List of objects => the bottom elements need conversion
+
+								// Uses the current field value if there is one, or create a new list
+								Collection<Object> dst = (Collection<Object>)field.get(object);
+								if (dst == null) {
+									if (fieldType == ArrayList.class
+										|| fieldType.isInterface()
+										|| Modifier.isAbstract(fieldType.getModifiers())) {
+										dst = new ArrayList<>(src.size());// allocates the right size
+									} else {
+										dst = (Collection<Object>)createInstance(fieldType);
+									}
+									field.set(object, dst);
+								}
+
+								// Converts the elements of the list
+								convertConfigsToObject(src, dst, dstTypes, 0);
+
+								// Applies the checks
+								AnnotationUtils.checkField(field, dst);
+							}
 						} else {
-							AnnotationUtils.checkField(field, value);
-                            if (field.getType().isEnum()) {
-                                Class<? extends Enum> enumType = (Class<? extends Enum>) field.getType();
-                                SpecEnum specEnum = field.getAnnotation(SpecEnum.class);
-                                EnumGetMethod method = (specEnum == null) ? EnumGetMethod.NAME_IGNORECASE : specEnum.method();
-                                field.set(object, method.get(value, enumType));
-                            } else {
-							    field.set(object, value);
-                            }
+							// --- Read as a plain value ---
+							if (value == null && AnnotationUtils.mustPreserve(field, clazz)) {
+								AnnotationUtils.checkField(field, field.get(object));
+							} else {
+								AnnotationUtils.checkField(field, value);
+								if (field.getType().isEnum()) {
+									Class<? extends Enum> enumType = (Class<? extends Enum>) field.getType();
+									SpecEnum specEnum = field.getAnnotation(SpecEnum.class);
+									EnumGetMethod method = (specEnum == null) ? EnumGetMethod.NAME_IGNORECASE : specEnum.method();
+									field.set(object, method.get(value, enumType));
+								} else {
+									field.set(object, value);
+								}
+							}
 						}
+					} catch (ReflectiveOperationException ex) {
+						throw new ReflectionException("Unable to work with field " + field, ex);
 					}
-				} catch (ReflectiveOperationException ex) {
-					throw new ReflectionException("Unable to work with field " + field, ex);
 				}
 			}
 			clazz = clazz.getSuperclass();

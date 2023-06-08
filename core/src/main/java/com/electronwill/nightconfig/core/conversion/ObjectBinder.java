@@ -123,33 +123,36 @@ public final class ObjectBinder {
 			if (!field.isAccessible()) {
 				field.setAccessible(true);// Enforces field access if needed
 			}
-			List<String> path = AnnotationUtils.getPath(field);
-			FieldInfos fieldInfos;
-			Converter<Object, Object> converter = AnnotationUtils.getConverter(field);
-            boolean isEnum = Enum.class.isAssignableFrom(field.getType());
-			if (converter == null) {
-                if (isEnum) {
-                    SpecEnum spec = field.getAnnotation(SpecEnum.class);
-                    EnumGetMethod method = (spec == null) ? EnumGetMethod.NAME_IGNORECASE : spec.method();
-                    converter = new EnumValueConverter(field.getType(), method);
-                } else {
-				    converter = NoOpConverter.INSTANCE;
-                }
-			}
-			try {
-				Object value = converter.convertFromField(field.get(object));
-				if (value == null || isEnum || configFormat.supportsType(value.getClass())) {
-                    // Create a FieldInfos for this simple field
-					fieldInfos = new FieldInfos(field, null, converter);
-				} else {
-                    // Bind recursively
-					BoundConfig subConfig = createBoundConfig(value, field.getType(), configFormat);
-					fieldInfos = new FieldInfos(field, subConfig, converter);
+			IgnoreValue ignoreValue = field.getDeclaredAnnotation(IgnoreValue.class);
+			if (ignoreValue != null) {
+				List<String> path = AnnotationUtils.getPath(field);
+				FieldInfos fieldInfos;
+				Converter<Object, Object> converter = AnnotationUtils.getConverter(field);
+				boolean isEnum = Enum.class.isAssignableFrom(field.getType());
+				if (converter == null) {
+					if (isEnum) {
+						SpecEnum spec = field.getAnnotation(SpecEnum.class);
+						EnumGetMethod method = (spec == null) ? EnumGetMethod.NAME_IGNORECASE : spec.method();
+						converter = new EnumValueConverter(field.getType(), method);
+					} else {
+						converter = NoOpConverter.INSTANCE;
+					}
 				}
-			} catch (IllegalAccessException e) {
-				throw new ReflectionException("Failed to bind field " + field, e);
+				try {
+					Object value = converter.convertFromField(field.get(object));
+					if (value == null || isEnum || configFormat.supportsType(value.getClass())) {
+						// Create a FieldInfos for this simple field
+						fieldInfos = new FieldInfos(field, null, converter);
+					} else {
+						// Bind recursively
+						BoundConfig subConfig = createBoundConfig(value, field.getType(), configFormat);
+						fieldInfos = new FieldInfos(field, subConfig, converter);
+					}
+				} catch (IllegalAccessException e) {
+					throw new ReflectionException("Failed to bind field " + field, e);
+				}
+				boundConfig.registerField(fieldInfos, path);
 			}
-			boundConfig.registerField(fieldInfos, path);
 		}
 		return boundConfig;
 	}
