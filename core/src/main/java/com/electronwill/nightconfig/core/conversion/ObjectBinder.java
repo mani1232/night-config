@@ -124,7 +124,7 @@ public final class ObjectBinder {
 				field.setAccessible(true);// Enforces field access if needed
 			}
 			IgnoreValue ignoreValue = field.getDeclaredAnnotation(IgnoreValue.class);
-			if (ignoreValue != null) {
+			if (ignoreValue == null) {
 				List<String> path = AnnotationUtils.getPath(field);
 				FieldInfos fieldInfos;
 				Converter<Object, Object> converter = AnnotationUtils.getConverter(field);

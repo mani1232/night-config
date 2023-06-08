@@ -136,7 +136,7 @@ public final class ObjectConverter {
 
 				// --- Applies annotations ---
 				IgnoreValue ignoreValue = field.getDeclaredAnnotation(IgnoreValue.class);
-				if (ignoreValue != null) {
+				if (ignoreValue == null) {
 					Object value;
 					try {
 						value = field.get(object);
@@ -218,7 +218,7 @@ public final class ObjectConverter {
 				}
 
 				IgnoreValue ignoreValue = field.getDeclaredAnnotation(IgnoreValue.class);
-				if (ignoreValue != null) {
+				if (ignoreValue == null) {
 					// --- Applies annotations ---
 					List<String> path = AnnotationUtils.getPath(field);
 					Object value = config.get(path);
